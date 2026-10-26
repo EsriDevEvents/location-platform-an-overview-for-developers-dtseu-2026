@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Geocoding and Places services</title>
+    <!--MapLibre-->
+    <link href="https://unpkg.com/maplibre-gl@5.15.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@5.15.0/dist/maplibre-gl.js"></script>
+    <!--MapLibre ArcGIS plugin-->
+    <script src="https://unpkg.com/@esri/maplibre-arcgis@1.1.0/dist/umd/maplibre-arcgis.min.js"></script>
+    <!--Calcite-->
+    <script type="module" src="https://js.arcgis.com/calcite-components/3.3.3/calcite.esm.js"></script>
+    <!--ArcGIS REST JS-->
+    <script type="importmap">
+      {
+        "imports": {
+          "@esri/arcgis-rest-request": "https://cdn.jsdelivr.net/npm/@esri/arcgis-rest-request@4.3.0/dist/bundled/request.esm.js",
+          "@esri/arcgis-rest-places": "https://cdn.jsdelivr.net/npm/@esri/arcgis-rest-places@1.0.0/dist/bundled/places.esm.js",
+          "@esri/arcgis-rest-geocoding": "https://cdn.jsdelivr.net/npm/@esri/arcgis-rest-geocoding@4.8.0/dist/bundled/geocoding.esm.js"
+        }
+      }
+    </script>
+    <!--JS SDK-->
+    <script type="module" src="https://js.arcgis.com/map-components/4.31/arcgis-map-components.esm.js"></script>
+    <!--Access token-->
+    <script src="./config.js"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Space+Mono:wght@400;700&display=swap");
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #f4f5f7;
+        --surface: #ffffff;
+        --surface2: #f0f2f5;
+        --border: #dde1e9;
+        --accent: #0070f3;
+        --text: #1a1d23;
+        --text-muted: #6b7280;
+        --panel-width: 340px;
+      }
+
+      html,
+      body {
+        height: 100%;
+        width: 100%;
+        /* font-family: 'DM Sans', sans-serif; */
+        background: var(--bg);
+        color: var(--text);
+        overflow: hidden;
+      }
+
+      #app {
+        display: flex;
+        height: 100%;
+        width: 100%;
+      }
+      /* ── MAP ── */
+      #map-container {
+        flex: 1;
+        position: relative;
+      }
+
+      #map {
+        width: 100%;
+        height: 100%;
+      }
+
+      /* ── TOP CONTROLS ── */
+      #top-controls {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        right: 16px;
+        z-index: 10;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      /* ── CATEGORY CHIPS ── */
+      .chips-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .chip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-muted);
+        font-family: "DM Sans", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        white-space: nowrap;
+      }
+
+      .chip img {
+        width: 16px;
+        height: 16px;
+      }
+
+      .chip:hover {
+        border-color: var(--accent);
+        color: var(--text);
+        background: var(--surface2);
+      }
+
+      .chip.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+        box-shadow: 0 0 16px rgba(0, 112, 243, 0.35);
+      }
+
+      .chip.active img {
+        filter: brightness(0) invert(1);
+      }
+
+      /* ── SIDE PANEL ── */
+      #side-panel {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        position: relative;
+        transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+        width: var(--panel-width);
+      }
+
+      #side-panel.collapsed {
+        width: 0;
+      }
+
+      #side-panel.collapsed calcite-panel {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      calcite-panel {
+        height: 100%;
+        width: var(--panel-width);
+        flex-shrink: 0;
+        --calcite-panel-max-height: 100vh;
+        transition: opacity 0.2s;
+        border-left: 1px solid var(--border);
+      }
+
+      /* Collapse tab */
+      #panel-toggle {
+        appearance: none;
+        -webkit-appearance: none;
+        position: absolute;
+        left: -36px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 36px;
+        height: 72px;
+        background: white;
+        border: 1px solid var(--border);
+        border-right: none;
+        border-radius: 8px 0 0 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: -3px 0 10px rgba(0, 0, 0, 0.08);
+        z-index: 10;
+        transition: background 0.15s;
+        padding: 0;
+        outline: none;
+      }
+
+      #panel-toggle:hover {
+        background: var(--surface2);
+      }
+
+      #panel-toggle calcite-icon {
+        transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      #side-panel.collapsed #panel-toggle calcite-icon {
+        transform: rotate(180deg);
+      }
+
+      /* Custom list item */
+      .item-content {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 2px 0;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .item-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--calcite-color-text-1);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .item-address {
+        font-size: 12px;
+        color: var(--calcite-color-text-3);
+        line-height: 1.4;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .item-phone {
+        font-size: 12px;
+        color: var(--calcite-color-brand);
+        font-family: "Space Mono", monospace;
+        letter-spacing: 0.02em;
+      }
+
+      .item-phone.none {
+        display: none;
+      }
+
+      /* Popup */
+      .maplibregl-popup-content {
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        color: var(--text) !important;
+        font-family: "DM Sans", sans-serif !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        padding: 8px 14px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12) !important;
+      }
+
+      .maplibregl-popup-tip {
+        border-top-color: var(--border) !important;
+      }
+      .place-marker {
+        width: 32px;
+        height: 32px;
+        background: white;
+        border-radius: 50%;
+        border: 2px solid var(--border);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition:
+          transform 0.15s,
+          box-shadow 0.15s;
+      }
+      .place-marker:hover {
+        transform: scale(1.15);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+      }
+      .place-marker.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(0, 112, 243, 0.3);
+      }
+      .place-marker img {
+        width: 18px;
+        height: 18px;
+      }
+      /* Search box — sits left of category buttons */
+      .search-container {
+        position: relative;
+        /* anchor for the dropdown */
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        margin-right: 8px;
+      }
+
+      #searchInput {
+        width: 220px;
+      }
+
+      /* Suggestion dropdown — absolutely positioned below the input */
+      #searchSuggestions {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        width: 100%;
+        z-index: 600;
+        background: var(--calcite-color-foreground-1);
+        border-radius: var(--calcite-border-radius);
+        box-shadow: var(--calcite-shadow-md);
+        max-height: 240px;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <calcite-shell>
+      <calcite-navigation slot="header" content-behind>
+        <calcite-navigation-logo slot="logo" heading="Geocoding and Places services"></calcite-navigation-logo>
+      </calcite-navigation>
+      <div id="app">
+        <!-- Map -->
+        <div id="map-container">
+          <div id="map"></div>
+          <div id="top-controls">
+            <div class="search-container" id="search-wrap">
+              <calcite-input-text
+                icon="search"
+                id="searchInput"
+                clearable
+                placeholder="Search"
+                style="width: 260px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); border-radius: 8px">
+              </calcite-input-text>
+              <calcite-list id="searchSuggestions"></calcite-list>
+            </div>
+            <div class="chips-row" id="chips-row"></div>
+          </div>
+          <!-- <div class="basemap-control-container" id="basemap-control">
+        <calcite-button id="basemap-btn" icon-start="basemap" appearance="solid"></calcite-button>
+        <calcite-list id="basemap-menu" selection-mode="single" selection-appearance="border"></calcite-list>
+      </div> -->
+        </div>
+        <!-- Side panel -->
+        <div id="side-panel">
+          <button id="panel-toggle" title="Toggle panel" aria-label="Toggle panel">
+            <calcite-icon icon="chevron-right" scale="s"></calcite-icon>
+          </button>
+          <calcite-panel id="places-panel" heading="Places in View" description="Current map extent">
+            <calcite-chip
+              slot="header-actions-end"
+              id="panel-count-chip"
+              scale="s"
+              style="display: none"></calcite-chip>
+            <calcite-progress id="loading-progress" type="indeterminate" style="display: none"></calcite-progress>
+            <calcite-list id="places-list" selection-mode="single" selection-appearance="border">
+              <calcite-notice open icon="information" scale="m" style="margin: 16px">
+                <div slot="message">Choose a category above to find places in the current map view.</div>
+              </calcite-notice>
+            </calcite-list>
+          </calcite-panel>
+        </div>
+      </div>
+    </calcite-shell>
+    <script type="module">
+      import {ApiKeyManager} from "@esri/arcgis-rest-request";
+      import {findPlacesWithinExtent, getPlaceDetails} from "@esri/arcgis-rest-places";
+      import {suggest, geocode} from "@esri/arcgis-rest-geocoding";
+      const accessToken = API_KEY;
+      const authentication = ApiKeyManager.fromKey(accessToken);
+      // ── State ──────────────────────────────────────────────────────────────────
+      let activeCategory = null;
+      let places = [];
+      let detailsCache = {};
+      let selectedId = null;
+      let activePopup = null;
+      let fetchTimer = null;
+      let lastFetchedBBox = null;
+      let activeMarkers = [];
+
+      // Place category buttons
+      const placeTypes = [
+        {
+          name: "Restaurants",
+          categoryIds: ["4d4b7105d754a06374d81259"],
+          icon: "https://static.arcgis.com/icons/places/Restaurant_15.svg",
+        },
+        {
+          name: "Hotels",
+          categoryIds: ["4bf58dd8d48988d1fa931735", "4bf58dd8d48988d1e9941735", "4bf58dd8d48988d12f951735"],
+          icon: "https://static.arcgis.com/icons/places/Lodging_15.svg",
+        },
+        {
+          name: "Grocery",
+          categoryIds: ["4bf58dd8d48988d118951735", "52f2ab2ebcbc57f1066b8b45", "50aa9e744b90af0d42d5de0e"],
+          icon: "https://static.arcgis.com/icons/places/Grocery_Store_15.svg",
+        },
+        {
+          name: "Coffee",
+          categoryIds: ["4bf58dd8d48988d1e0931735", "5e18993feee47d000759b256"],
+          icon: "https://static.arcgis.com/icons/places/Coffee_or_Tea_15.svg",
+        },
+        {
+          name: "Parks",
+          categoryIds: ["4bf58dd8d48988d163941735", "63be6904847c3692a84b9be0", "4bf58dd8d48988d1e7941735"],
+          icon: "https://static.arcgis.com/icons/places/Park_15.svg",
+        },
+      ];
+
+      const chipsRow = document.getElementById("chips-row");
+      placeTypes.forEach((pt) => {
+        const chip = document.createElement("div");
+        chip.className = "chip";
+        chip.dataset.name = pt.name;
+        chip.innerHTML = `<img src="${pt.icon}" alt=""> ${pt.name}`;
+        chip.addEventListener("click", () => selectCategory(pt, chip));
+        chipsRow.appendChild(chip);
+      });
+
+      function selectCategory(pt, chip) {
+        document.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+        chip.classList.add("active");
+        activeCategory = pt;
+        lastFetchedBBox = null;
+        fetchPlaces();
+      }
+      // Display a map
+      const map = new maplibregl.Map({
+        container: "map",
+        zoom: 3,
+        center: [-25, 25],
+      });
+      const basemapStyle = maplibreArcGIS.BasemapStyle.applyStyle(map, {
+        // style: "arcgis/light-gray",
+        style: "arcgis/navigation",
+        token: accessToken,
+      });
+
+      // Markers
+
+      function clearMarkers() {
+        activeMarkers.forEach((m) => m.remove());
+        activeMarkers = [];
+      }
+
+      function addMarker(p) {
+        const el = document.createElement("div");
+        el.className = "place-marker";
+        const img = document.createElement("img");
+        img.src = p.icon?.url || activeCategory.icon;
+        img.alt = p.name || "";
+        el.appendChild(img);
+        el.addEventListener("click", () => {
+          showPopup([p.location.x, p.location.y], p.name);
+          highlightPanelItem(p.placeId);
+        });
+        const marker = new maplibregl.Marker({element: el}).setLngLat([p.location.x, p.location.y]).addTo(map);
+        activeMarkers.push(marker);
+        return marker;
+      }
+      map.on("load", async () => {
+        // ── Re-fetch on map move (debounced) ──
+        map.on("moveend", () => {
+          if (!activeCategory) return;
+          if (isFlyingToMarker) {
+            isFlyingToMarker = false;
+            return;
+          }
+          clearTimeout(fetchTimer);
+          fetchTimer = setTimeout(() => {
+            if (!isViewWithinLastBox()) return;
+            fetchPlaces();
+          }, 400);
+        });
+      });
+
+      // Bounding box helpers
+
+      function currentBbox() {
+        const b = map.getBounds();
+        return {xmin: b.getWest(), ymin: b.getSouth(), xmax: b.getEast(), ymax: b.getNorth()};
+      }
+
+      function isViewWithinLastBox() {
+        if (!lastFetchedBbox) return false;
+        const cur = currentBbox();
+        return (
+          cur.xmin >= lastFetchedBBox.xmin &&
+          cur.ymin >= lastFetchedBBox.ymin &&
+          cur.xmax <= lastFetchedBBox.xmax &&
+          cur.ymax <= lastFetchedBBox.ymax
+        );
+      }
+
+      // ── Fetch places within current map extent ─────────────────────────────────
+      async function fetchPlaces() {
+        if (!activeCategory) return;
+
+        if (map.getZoom() < 11) {
+          lastFetchedBbox = null;
+          renderPanel([], true);
+          return;
+        }
+
+        const bbox = currentBbox();
+
+        try {
+          let allResults = [];
+          let nextUrl = null;
+          const firstResp = await findPlacesWithinExtent({
+            xmin: bbox.xmin,
+            ymin: bbox.ymin,
+            xmax: bbox.xmax,
+            ymax: bbox.ymax,
+            categoryIds: activeCategory.categoryIds,
+            authentication,
+            // params: {icon: "svg"},
+            pageSize: 20,
+          });
+          allResults = firstResp.results || [];
+          nextUrl = firstResp.pagination?.nextUrl || null;
+
+          let pages = 0;
+          while (nextUrl && pages < 3) {
+            const pageResp = await fetch(`${nextUrl}&icon=svg&token=${accessToken}`).then((r) => r.json());
+            allResults = allResults.concat(pageResp.results || []);
+            nextUrl = pageResp.pagination?.nextUrl || null;
+            pages++;
+          }
+          lastFetchedBBox = bbox;
+          places = allResults;
+          detailsCache = {};
+
+          clearMarkers();
+          places.forEach((p) => addMarker(p));
+          renderPanel(places);
+          fetchAllDetails(places);
+        } catch (err) {
+          console.error("Places fetch error:", err);
+        }
+      }
+      // ── Fetch details progressively ────────────────────────────────────────────
+      async function fetchAllDetails(placeList) {
+        for (const p of placeList) {
+          if (detailsCache[p.placeId]) continue;
+          try {
+            const detail = await getPlaceDetails({
+              placeId: p.placeId,
+              requestedFields: ["address:streetAddress", "address:locality", "contactInfo:telephone"],
+              authentication,
+            });
+            detailsCache[p.placeId] = detail.placeDetails || {};
+            updateCard(p.placeId, detailsCache[p.placeId]);
+          } catch (_) {}
+        }
+      }
+      // ── Panel rendering ────────────────────────────────────────────────────────
+      function renderPanel(placeList, tooZoomedOut = false) {
+        const list = document.getElementById("places-list");
+        const countChip = document.getElementById("panel-count-chip");
+        if (tooZoomedOut) {
+          countChip.style.display = "none";
+          list.innerHTML = `
+      <calcite-notice open icon="zoom-in-magnifying-glass" scale="m" style="margin:16px;">
+        <div slot="message">Zoom in further to search this area — the extent is too large.</div>
+      </calcite-notice>`;
+          return;
+        }
+        if (!placeList.length) {
+          countChip.style.display = "none";
+          list.innerHTML = `
+      <calcite-notice open icon="search" scale="m" style="margin:16px;">
+        <div slot="message">No ${activeCategory?.name.toLowerCase() || "places"} found in this view. Try panning or zooming.</div>
+      </calcite-notice>`;
+          return;
+        }
+        countChip.style.display = "";
+        countChip.textContent = `${placeList.length} result${placeList.length !== 1 ? "s" : ""}`;
+        list.innerHTML = "";
+        placeList.forEach((p) => {
+          const item = document.createElement("calcite-list-item");
+          item.setAttribute("label", " ");
+          item.dataset.placeId = p.placeId;
+          const avatar = document.createElement("calcite-avatar");
+          avatar.setAttribute("slot", "content-start");
+          avatar.setAttribute("scale", "m");
+          avatar.setAttribute("thumbnail", p.icon?.url || activeCategory.icon);
+          item.appendChild(avatar);
+          const contentDiv = document.createElement("div");
+          contentDiv.setAttribute("slot", "content");
+          contentDiv.className = "item-content";
+          contentDiv.innerHTML = `
+      <div class="item-name">${p.name || "Unknown"}</div>
+      <div class="item-address" id="addr-${p.placeId}">Loading address…</div>
+      <div class="item-phone none" id="phone-${p.placeId}"></div>
+    `;
+          item.appendChild(contentDiv);
+          item.addEventListener("calciteListItemSelect", () => onCardClick(p, item));
+          list.appendChild(item);
+        });
+      }
+
+      function updateCard(placeId, details) {
+        const addrEl = document.getElementById(`addr-${placeId}`);
+        const phoneEl = document.getElementById(`phone-${placeId}`);
+        if (!addrEl) return;
+        const addr = details.address?.streetAddress || "";
+        const city = details.address?.locality || "";
+        addrEl.textContent = [addr, city].filter(Boolean).join(", ") || "Address unavailable";
+        const raw = details.contactInfo?.telephone || "";
+        if (phoneEl) {
+          if (raw) {
+            const digits = raw.replace(/\D/g, "");
+            phoneEl.textContent =
+              digits.length === 10 ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : raw;
+            phoneEl.className = "item-phone";
+          } else {
+            phoneEl.textContent = "";
+            phoneEl.className = "item-phone none";
+          }
+        }
+      }
+      // ── Interactions ───────────────────────────────────────────────────────────
+
+      let isFlyingToMarker = false;
+
+      function onCardClick(p, item) {
+        selectedId = p.placeId;
+        isFlyingToMarker = true;
+        map.flyTo({
+          center: [p.location.x, p.location.y],
+          zoom: Math.max(map.getZoom(), 15),
+          speed: 1.2,
+        });
+        showPopup([p.location.x, p.location.y], p.name);
+        activeMarkers.forEach((m) => m.getElement().classList.remove("selected"));
+        const markerIdx = places.findIndex((pl) => pl.placeId === p.placeId);
+        if (markerIdx !== -1) activeMarkers[markerIdx]?.getElement().classList.add("selected");
+      }
+
+      function showPopup(coords, name) {
+        if (activePopup) activePopup.remove();
+        activePopup = new maplibregl.Popup({
+          offset: 16,
+          closeButton: false,
+        })
+          .setLngLat(coords)
+          .setHTML(`<strong>${name}</strong>`)
+          .addTo(map);
+      }
+
+      function highlightPanelItem(placeId) {
+        selectedId = placeId;
+        document.querySelectorAll("#places-list calcite-list-item").forEach((item) => {
+          if (item.dataset.placeId === placeId) {
+            item.setAttribute("selected", "");
+          } else {
+            item.removeAttribute("selected");
+          }
+        });
+        const item = document.querySelector(`calcite-list-item[data-place-id="${placeId}"]`);
+        if (item) item.scrollIntoView({behavior: "smooth", block: "nearest"});
+      }
+
+      // ── Panel collapse toggle ──────────────────────────────────────────────────
+      // document.getElementById("panel-toggle").addEventListener("click", () =>{
+      //   const sidePanel = document.getElementById("side-panel");
+      //   sidePanel.classList.toggle("collapsed");
+      //   const panelIsOpen = !sidePanel.classList.contains("collapsed");
+      //   document.getElementById("basemap-control").classList.toggle("hidden", panelIsOpen);
+      // });
+      document.getElementById("panel-toggle").addEventListener("click", () => {
+        document.getElementById("side-panel").classList.toggle("collapsed");
+      });
+
+      // ── Geocode / search ───────────────────────────────────────────────────────
+      const searchInput = document.getElementById("searchInput");
+      const suggestionsList = document.getElementById("searchSuggestions");
+
+      const onSuggestionSelect = async (evt) => {
+        const mk = evt.currentTarget.value;
+        const gcResp = await geocode({
+          magicKey: mk,
+          authentication,
+        });
+        const result = gcResp.candidates[0];
+        if (!result) return;
+        searchInput.value = result.address;
+        suggestionsList.replaceChildren();
+        map.jumpTo({
+          center: [result.location.x, result.location.y],
+          zoom: 15,
+        });
+      };
+      searchInput.addEventListener("calciteInputTextInput", async (e) => {
+        suggestionsList.replaceChildren();
+        const partial = e.target.value;
+        if (!partial) return;
+        const suggestResp = await suggest(partial, {
+          authentication,
+          params: {
+            maxSuggestions: 5,
+          },
+        });
+        suggestResp.suggestions.forEach((s) => {
+          const item = document.createElement("calcite-list-item");
+          item.label = s.text;
+          item.value = s.magicKey;
+          item.addEventListener("calciteListItemSelect", onSuggestionSelect);
+          suggestionsList.appendChild(item);
+        });
+      });
+      searchInput.addEventListener("calciteInputTextClear", () => {
+        suggestionsList.replaceChildren();
+      });
+    </script>
+  </body>
+</html>

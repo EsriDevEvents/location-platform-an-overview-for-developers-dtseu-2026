@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Static Route Map</title>
+    <script src="https://unpkg.com/@esri/arcgis-rest-request@4/dist/bundled/request.umd.js"></script>
+    <script src="https://unpkg.com/@esri/arcgis-rest-geocoding@4/dist/bundled/geocoding.umd.js"></script>
+    <script src="https://unpkg.com/@esri/arcgis-rest-routing@4/dist/bundled/routing.umd.js"></script>
+    <script src="./config.js"></script>
+    <style>
+      :root {
+        color: #242424;
+        background: #f5f7f8;
+        font-family:
+          Avenir Next,
+          Segoe UI,
+          sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px 20px;
+      }
+
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        font-weight: 600;
+      }
+
+      p {
+        margin: 0 0 24px;
+        color: #555;
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+        gap: 12px;
+        align-items: end;
+        margin-bottom: 24px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 600;
+      }
+
+      input,
+      button {
+        box-sizing: border-box;
+        min-height: 42px;
+        border: 1px solid #8c9da5;
+        border-radius: 4px;
+        padding: 8px 10px;
+        font: inherit;
+      }
+
+      button {
+        border-color: #00619b;
+        background: #00619b;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      #status {
+        min-height: 24px;
+        margin-bottom: 12px;
+      }
+
+      #route-map {
+        display: block;
+        width: 100%;
+        max-width: 900px;
+        min-height: 300px;
+        background: #dce3e6;
+        object-fit: contain;
+      }
+
+      #route-map[hidden] {
+        display: none;
+      }
+
+      @media (max-width: 640px) {
+        form {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Route map</h1>
+      <form id="route-form">
+        <label>
+          Start point
+          <input id="start-point" type="text" value="10 Nightingale Way, Edinburgh" required />
+        </label>
+        <label>
+          End point
+          <input id="end-point" type="text" value="Saint James Quarter, Edinburgh" required />
+        </label>
+        <button id="route-button" type="submit">Find route</button>
+      </form>
+      <div id="status" role="status"></div>
+      <img id="route-map" alt="Route map" hidden />
+    </main>
+
+    <script>
+      const accessToken = API_KEY;
+      const routeForm = document.querySelector("#route-form");
+      const routeButton = document.querySelector("#route-button");
+      const routeMap = document.querySelector("#route-map");
+      const status = document.querySelector("#status");
+      let routeMapObjectUrl;
+
+      async function geocodeAddress(value, authentication) {
+        const address = value.trim();
+        if (!address) {
+          throw new Error("Enter an address for both the start and end points.");
+        }
+
+        const response = await arcgisRest.geocode({
+          singleLine: address,
+          authentication,
+          params: {location: "-3.19,55.95", outSR: 4326, maxLocations: 1}, // geocoding bias to Edinburgh
+        });
+        const candidate = response.candidates[0];
+        if (!candidate || !Number.isFinite(candidate.location.x) || !Number.isFinite(candidate.location.y)) {
+          throw new Error(`No location found for "${address}".`);
+        }
+        return [candidate.location.x, candidate.location.y];
+      }
+
+      async function createStaticMapImage(routeCoordinates) {
+        const [start, end] = [routeCoordinates[0], routeCoordinates.at(-1)];
+        const overlay = [
+          {
+            type: "polyline",
+            geometry: {paths: [routeCoordinates], spatialReference: {wkid: 4326}},
+            symbol: {style: "solid", color: "007AC2", width: 5},
+          },
+          {
+            type: "point",
+            geometry: {x: start[0], y: start[1], spatialReference: {wkid: 4326}},
+            symbol: {style: "pin", color: "2E7D32", label: "A"},
+          },
+          {
+            type: "point",
+            geometry: {x: end[0], y: end[1], spatialReference: {wkid: 4326}},
+            symbol: {style: "pin", color: "C62828", label: "B"},
+          },
+        ];
+        const response = await fetch(
+          "https://static-maps-api.arcgis.com/arcgis/rest/services/static-maps-service/v1/static-maps/arcgis/navigation/with-overlay",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              overlay,
+              image: {width: 900, height: 600, format: "png", padding: [15], attribution: "auto"},
+            }),
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(`Static map request failed: ${await response.text()}`);
+        }
+
+        return URL.createObjectURL(await response.blob());
+      }
+
+      // Geocode addresses and find the route
+      async function findRoute(event) {
+        event.preventDefault();
+        routeButton.disabled = true;
+        status.textContent = "Finding addresses...";
+        routeMap.hidden = true;
+
+        try {
+          const authentication = arcgisRest.ApiKeyManager.fromKey(accessToken);
+          const [start, end] = await Promise.all([
+            geocodeAddress(document.querySelector("#start-point").value, authentication),
+            geocodeAddress(document.querySelector("#end-point").value, authentication),
+          ]);
+          status.textContent = "Finding route...";
+          const route = await arcgisRest.solveRoute({
+            stops: [start, end],
+            endpoint: "https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World/solve",
+            authentication,
+          });
+
+          console.log(route);
+
+          const routeCoordinates = route.routes.geoJson.features[0].geometry.coordinates;
+          console.log(routeCoordinates);
+
+          // Create the static map from the route coordinates
+          const newRouteMapObjectUrl = await createStaticMapImage(routeCoordinates);
+          URL.revokeObjectURL(routeMapObjectUrl);
+          routeMapObjectUrl = newRouteMapObjectUrl;
+          routeMap.src = routeMapObjectUrl;
+          routeMap.hidden = false;
+          status.textContent = "";
+        } catch (error) {
+          console.error(error);
+          status.textContent = error.message || "Unable to find a route.";
+        } finally {
+          routeButton.disabled = false;
+        }
+      }
+
+      routeForm.addEventListener("submit", findRoute);
+    </script>
+  </body>
+</html>
